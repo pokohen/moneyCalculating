@@ -1,0 +1,274 @@
+/* ── 토큰 ─────────────────────────────────────────────
+   영수증 한 장을 식탁 위에 올려둔 화면.
+   종이(paper)는 감열지 흰색, 잉크는 남색이 도는 검정,
+   강조는 소주병 초록, 도장은 영수증 확인도장 빨강. */
+:root {
+  --paper: #fbfaf6;
+  --paper-2: #f3f1ea;
+  --paper-3: #e9e6dc;
+  --ink: #15171c;
+  --ink-2: #4c515b;
+  --ink-3: #8b9099;
+  --rule: #d6d2c7;
+
+  --soju: #1f6f45;
+  --soju-dark: #175433;
+  --soju-soft: #e6f0ea;
+
+  --stamp: #bf362c;
+  --stamp-soft: #fbeceb;
+
+  --desk: #1b2330;
+  --desk-2: #131a24;
+
+  --radius: 4px;
+  --tap: 48px;
+
+  --font-body: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+    system-ui, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-display: 'Black Han Sans', var(--font-body);
+  --font-num: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100dvh;
+  background: var(--desk);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-y: none;
+}
+
+h1,
+h2,
+h3,
+p,
+figure {
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--soju);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* 숫자는 영수증처럼 자릿수가 맞아떨어지게 */
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ── 공통 컴포넌트 ───────────────────────────────── */
+
+/* 도장: 종이 위에 비스듬히 찍힌 확인 표시 */
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15em 0.5em;
+  border: 2px solid var(--stamp);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--paper), inset 0 0 0 3px var(--stamp);
+  color: var(--stamp);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  line-height: 1.5;
+  transform: rotate(-6deg);
+  opacity: 0.92;
+}
+
+/* 이름과 금액 사이를 잇는 점선 */
+.leader {
+  flex: 1;
+  min-width: 1.5rem;
+  align-self: center;
+  border-bottom: 1px dotted var(--rule);
+}
+
+.field {
+  display: block;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: var(--ink-2);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.input {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0.7rem 0.85rem;
+  border: 1.5px solid var(--rule);
+  border-radius: var(--radius);
+  background: #fff;
+  font-size: 1rem; /* iOS 자동 확대 방지 */
+}
+
+.input::placeholder {
+  color: var(--ink-3);
+}
+
+.input:focus {
+  border-color: var(--soju);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--soju-soft);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: var(--tap);
+  padding: 0 1.1rem;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 700;
+  transition: transform 0.12s ease, background-color 0.12s ease;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  background: var(--paper-3);
+  border-color: var(--paper-3);
+  color: var(--ink-3);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-go {
+  background: var(--soju);
+  border-color: var(--soju);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--rule);
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.btn-danger {
+  background: transparent;
+  border-color: var(--stamp);
+  color: var(--stamp);
+}
+
+/* 참가자 칩: 누르면 켜지고 꺼지는 이름표 */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 40px;
+  padding: 0 0.75rem;
+  border: 1.5px solid var(--rule);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 0.94rem;
+  font-weight: 600;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.chip[aria-pressed='true'],
+.chip.is-on {
+  border-color: var(--soju);
+  background: var(--soju);
+  color: #fff;
+}
+
+.chip:active {
+  transform: translateY(1px);
+}
+
+.hint {
+  color: var(--ink-3);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.warn {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.7rem 0.85rem;
+  border-left: 3px solid var(--stamp);
+  background: var(--stamp-soft);
+  color: var(--stamp);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.empty {
+  padding: 1.75rem 1rem;
+  border: 1.5px dashed var(--rule);
+  border-radius: var(--radius);
+  color: var(--ink-3);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--ink-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
