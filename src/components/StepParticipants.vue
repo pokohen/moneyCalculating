@@ -1,6 +1,7 @@
 <script setup>
 import { nextTick, ref } from 'vue'
-import { addParticipant, removeParticipant, state } from '../stores/settlement'
+import { addParticipant, removeParticipant, state } from '../stores/settlement.js'
+import { t } from '../i18n.js'
 
 const name = ref('')
 const error = ref('')
@@ -9,7 +10,8 @@ const input = ref(null)
 function submit() {
   const result = addParticipant(name.value)
   if (!result.ok) {
-    error.value = result.message
+    error.value =
+      result.reason === 'dup' ? t('p.err.dup', { name: result.name }) : t('p.err.empty')
     return
   }
   error.value = ''
@@ -21,7 +23,7 @@ function submit() {
 
 <template>
   <div>
-    <p class="lede">오늘 자리에 있는 사람을 모두 넣으세요. 이 명단으로 공통 메뉴를 1/n 합니다.</p>
+    <p class="lede">{{ t('p.lede') }}</p>
 
     <form class="adder" @submit.prevent="submit">
       <input
@@ -29,25 +31,25 @@ function submit() {
         v-model="name"
         class="input"
         type="text"
-        placeholder="이름 (예: 홍길동)"
+        :placeholder="t('p.placeholder')"
         autocomplete="off"
         enterkeyhint="done"
         maxlength="12"
-        aria-label="참가자 이름"
+        :aria-label="t('p.aria')"
         @input="error = ''"
       />
-      <button class="btn" type="submit" :disabled="!name.trim()">추가</button>
+      <button class="btn" type="submit" :disabled="!name.trim()">{{ t('p.add') }}</button>
     </form>
     <p v-if="error" class="err">{{ error }}</p>
 
     <div class="roster">
       <div class="section-title">
-        <span>참석자</span>
-        <span class="count num">{{ state.participants.length }}명</span>
+        <span>{{ t('p.heading') }}</span>
+        <span class="count num">{{ t('app.meta.people', { n: state.participants.length }) }}</span>
       </div>
 
       <p v-if="!state.participants.length" class="empty">
-        아직 아무도 없어요.<br />위에 이름을 적고 추가하세요.
+        {{ t('p.empty') }}<br />{{ t('p.empty2') }}
       </p>
 
       <ul v-else class="chips">
@@ -57,7 +59,7 @@ function submit() {
             <button
               class="chip-x"
               type="button"
-              :aria-label="`${p.name} 빼기`"
+              :aria-label="t('p.remove', { name: p.name })"
               @click="removeParticipant(p.id)"
             >
               ×

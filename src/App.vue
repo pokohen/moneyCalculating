@@ -1,14 +1,17 @@
 <script setup>
 import { computed, ref } from 'vue'
 import {
+  CURRENCY_CODES,
   STEPS,
-  formatWon,
   goToStep,
   menusWithoutMembers,
+  money,
   resetAll,
+  setCurrency,
   state,
   totalAmount,
-} from './stores/settlement'
+} from './stores/settlement.js'
+import { LOCALES, LOCALE_NAMES, locale, pathFor, t } from './i18n.js'
 import StepParticipants from './components/StepParticipants.vue'
 import StepMenus from './components/StepMenus.vue'
 import StepAssign from './components/StepAssign.vue'
@@ -23,23 +26,25 @@ const askingReset = ref(false)
 const gate = computed(() => {
   if (state.step === 1) {
     return {
-      label: '메뉴 입력하기',
+      label: t('gate.1.label'),
       ready: state.participants.length >= 1,
-      blocked: '참가자를 한 명 이상 추가하세요.',
+      blocked: t('gate.1.blocked'),
     }
   }
   if (state.step === 2) {
     return {
-      label: '참가자 배정하기',
+      label: t('gate.2.label'),
       ready: state.menus.length >= 1,
-      blocked: '메뉴를 하나 이상 추가하세요.',
+      blocked: t('gate.2.blocked'),
     }
   }
   if (state.step === 3) {
     return {
-      label: '정산하기',
+      label: t('gate.3.label'),
       ready: menusWithoutMembers.value.length === 0,
-      blocked: `${menusWithoutMembers.value.map((m) => m.name).join(', ')} 에 아무도 없어요.`,
+      blocked: t('gate.3.blocked', {
+        names: menusWithoutMembers.value.map((m) => m.name).join(', '),
+      }),
     }
   }
   return null
@@ -73,39 +78,69 @@ function doReset() {
     <main class="receipt">
       <header class="head">
         <div class="head-top">
-          <p class="brand">회식 정산</p>
+          <p class="brand">{{ t('app.brand') }}</p>
           <button
             v-if="state.participants.length || state.menus.length"
             class="reset-link"
             type="button"
             @click="askingReset = true"
           >
-            처음부터
+            {{ t('app.restart') }}
           </button>
         </div>
-        <h1 class="title">오늘의 계산서</h1>
+        <h1 class="title">{{ t('app.title') }}</h1>
         <p class="meta num">
-          <span>{{ state.participants.length }}명</span>
+          <span>{{ t('app.meta.people', { n: state.participants.length }) }}</span>
           <span class="sep">·</span>
-          <span>메뉴 {{ state.menus.length }}개</span>
+          <span>{{ t('app.meta.menus', { n: state.menus.length }) }}</span>
           <span class="sep">·</span>
-          <span>{{ formatWon(totalAmount) }}원</span>
+          <span>{{ money(totalAmount) }}</span>
         </p>
+
+        <div class="prefs">
+          <!-- 언어는 주소가 바뀌는 진짜 페이지 이동이다. 저장된 계산서는 그대로 남는다. -->
+          <nav class="langs" :aria-label="t('app.lang')">
+            <template v-for="(code, i) in LOCALES" :key="code">
+              <span v-if="i" class="lang-sep" aria-hidden="true">/</span>
+              <span v-if="code === locale" class="lang is-now" aria-current="true">
+                {{ LOCALE_NAMES[code] }}
+              </span>
+              <a v-else class="lang" :href="pathFor(code)" :hreflang="code">
+                {{ LOCALE_NAMES[code] }}
+              </a>
+            </template>
+          </nav>
+
+          <div class="cur" role="group" :aria-label="t('app.currency')">
+            <template v-for="(code, i) in CURRENCY_CODES" :key="code">
+              <span v-if="i" class="lang-sep" aria-hidden="true">/</span>
+              <button
+                class="lang cur-btn"
+                type="button"
+                :class="{ 'is-now': state.currency === code }"
+                :aria-pressed="state.currency === code"
+                @click="setCurrency(code)"
+              >
+                {{ t(`cur.${code}`) }}
+              </button>
+            </template>
+          </div>
+        </div>
       </header>
 
-      <nav class="steps" aria-label="정산 단계">
+      <nav class="steps" :aria-label="t('app.steps')">
         <button
-          v-for="s in STEPS"
-          :key="s.no"
+          v-for="no in STEPS"
+          :key="no"
           class="step"
           type="button"
-          :class="{ 'is-now': s.no === state.step, 'is-done': s.no < state.step }"
-          :disabled="!reachable(s.no)"
-          :aria-current="s.no === state.step ? 'step' : undefined"
-          @click="goToStep(s.no)"
+          :class="{ 'is-now': no === state.step, 'is-done': no < state.step }"
+          :disabled="!reachable(no)"
+          :aria-current="no === state.step ? 'step' : undefined"
+          @click="goToStep(no)"
         >
-          <span class="step-no num">{{ s.no }}</span>
-          <span class="step-name">{{ s.name }}</span>
+          <span class="step-no num">{{ no }}</span>
+          <span class="step-name">{{ t(`step.${no}`) }}</span>
         </button>
       </nav>
 
@@ -119,7 +154,7 @@ function doReset() {
     <div v-if="gate" class="bar">
       <div class="bar-inner">
         <button v-if="state.step > 1" class="btn btn-ghost bar-back" type="button" @click="back">
-          이전
+          {{ t('nav.back') }}
         </button>
         <button class="btn btn-go bar-next" type="button" :disabled="!gate.ready" @click="next">
           {{ gate.label }}
@@ -130,11 +165,13 @@ function doReset() {
 
     <div v-if="askingReset" class="sheet-backdrop" @click.self="askingReset = false">
       <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="reset-title">
-        <h2 id="reset-title" class="sheet-title">계산서를 새로 시작할까요?</h2>
-        <p class="hint">참가자, 메뉴, 배정이 모두 지워집니다. 되돌릴 수 없어요.</p>
+        <h2 id="reset-title" class="sheet-title">{{ t('reset.title') }}</h2>
+        <p class="hint">{{ t('reset.body') }}</p>
         <div class="sheet-actions">
-          <button class="btn btn-ghost" type="button" @click="askingReset = false">그대로 둘게요</button>
-          <button class="btn btn-danger" type="button" @click="doReset">전부 지우기</button>
+          <button class="btn btn-ghost" type="button" @click="askingReset = false">
+            {{ t('reset.keep') }}
+          </button>
+          <button class="btn btn-danger" type="button" @click="doReset">{{ t('reset.wipe') }}</button>
         </div>
       </div>
     </div>
@@ -221,6 +258,59 @@ function doReset() {
 
 .sep {
   opacity: 0.5;
+}
+
+.prefs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.7rem;
+}
+
+.langs {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* 통화도 언어와 같은 글자 버튼. 둘 다 계산 전체에 걸리는 설정이라 늘 같은 자리에 둔다. */
+.cur {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 0.4rem;
+}
+
+.cur-btn {
+  border: 0;
+  background: none;
+}
+
+.lang {
+  padding: 0.15rem 0;
+  color: var(--ink-3);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.lang:hover {
+  color: var(--soju);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.lang.is-now {
+  color: var(--soju);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.lang-sep {
+  color: var(--rule);
+  font-size: 0.72rem;
 }
 
 .steps {

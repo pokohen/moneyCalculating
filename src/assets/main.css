@@ -24,9 +24,11 @@
   --radius: 4px;
   --tap: 48px;
 
+  /* 한국어·일본어·영어를 한 스택으로 받는다. 일본어 글자는 기기 기본 고딕으로 떨어진다. */
   --font-body: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
-    system-ui, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
-  --font-display: 'Black Han Sans', var(--font-body);
+    system-ui, 'Apple SD Gothic Neo', 'Hiragino Sans', 'Noto Sans JP', 'Yu Gothic', Meiryo,
+    'Malgun Gothic', sans-serif;
+  --font-display: 'Black Han Sans', 'Hiragino Sans', 'Noto Sans JP', 'Yu Gothic', var(--font-body);
   --font-num: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
 

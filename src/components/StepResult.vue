@@ -1,22 +1,23 @@
 <script setup>
 import { computed, ref } from 'vue'
 import {
-  ROUND_UNITS,
-  formatWon,
+  currency,
   goToStep,
+  money,
+  num,
   resetAll,
+  roundUnits,
   settlement,
   state,
-} from '../stores/settlement'
+} from '../stores/settlement.js'
+import { t } from '../i18n.js'
 
 const opened = ref(new Set())
 const confirmingReset = ref(false)
 const copyState = ref('idle') // idle | done | fail
 
 const result = computed(() => settlement.value)
-const unitLabel = computed(
-  () => ROUND_UNITS.find((u) => u.value === state.roundUnit)?.label ?? '100원',
-)
+const unitLabel = computed(() => money(state.roundUnit))
 
 function toggle(id) {
   const next = new Set(opened.value)
@@ -26,14 +27,17 @@ function toggle(id) {
 
 function summaryText() {
   const lines = [
-    `회식 정산 · 총 ${formatWon(result.value.billTotal)}원 / ${result.value.headcount}명`,
+    t('r.share.head', {
+      total: money(result.value.billTotal),
+      people: result.value.headcount,
+    }),
     '',
-    ...result.value.people.map((p) => `${p.name}  ${formatWon(p.payable)}원`),
+    ...result.value.people.map((p) => `${p.name}  ${money(p.payable)}`),
   ]
   if (result.value.remainder > 0) {
     lines.push(
       '',
-      `※ ${unitLabel.value} 단위 내림 · 남은 ${formatWon(result.value.remainder)}원은 따로 채워야 해요`,
+      t('r.share.note', { unit: unitLabel.value, rest: money(result.value.remainder) }),
     )
   }
   return lines.join('\n')
@@ -67,34 +71,37 @@ function startOver() {
   <div>
     <!-- 서명: 도장이 찍힌 합계 -->
     <section class="total">
-      <p class="total-label">총 결제 금액</p>
+      <p class="total-label">{{ t('r.total.label') }}</p>
       <p class="total-amount num">
-        {{ formatWon(result.billTotal) }}<span class="won">원</span>
+        <span v-if="currency.prefix" class="won">{{ currency.symbol }}</span
+        >{{ num(result.billTotal)
+        }}<span v-if="!currency.prefix" class="won">{{ currency.symbol }}</span>
       </p>
-      <p class="total-sub num">{{ result.headcount }}명 · 메뉴 {{ state.menus.length }}개</p>
-      <span class="stamp total-stamp">정산완료</span>
+      <p class="total-sub num">
+        {{ t('r.total.sub', { people: result.headcount, menus: state.menus.length }) }}
+      </p>
+      <span class="stamp total-stamp">{{ t('stamp.done') }}</span>
     </section>
 
     <div v-if="result.unassignedAmount > 0" class="warn unassigned">
-      아무도 배정되지 않은 {{ formatWon(result.unassignedAmount) }}원은 빠져 있습니다.
-      배정 단계에서 사람을 넣어주세요.
+      {{ t('r.unassigned', { amount: money(result.unassignedAmount) }) }}
     </div>
 
     <div class="rounding">
       <div class="rounding-head">
-        <span class="rounding-label">걷는 단위</span>
-        <span class="rounding-note">내림 · 총액을 넘지 않아요</span>
+        <span class="rounding-label">{{ t('r.round.label') }}</span>
+        <span class="rounding-note">{{ t('r.round.note') }}</span>
       </div>
       <div class="rounding-opts">
         <button
-          v-for="u in ROUND_UNITS"
-          :key="u.value"
+          v-for="u in roundUnits"
+          :key="u"
           class="chip"
           type="button"
-          :aria-pressed="state.roundUnit === u.value"
-          @click="state.roundUnit = u.value"
+          :aria-pressed="state.roundUnit === u"
+          @click="state.roundUnit = u"
         >
-          {{ u.label }}
+          {{ money(u) }}
         </button>
       </div>
     </div>
@@ -104,30 +111,30 @@ function startOver() {
         <button class="person-line" type="button" :aria-expanded="opened.has(p.id)" @click="toggle(p.id)">
           <span class="person-name">{{ p.name }}</span>
           <span class="leader"></span>
-          <span class="person-amount num">{{ formatWon(p.payable) }}원</span>
+          <span class="person-amount num">{{ money(p.payable) }}</span>
           <span class="caret" :class="{ 'is-open': opened.has(p.id) }" aria-hidden="true">›</span>
         </button>
 
         <div v-if="opened.has(p.id)" class="detail">
-          <p v-if="!p.items.length" class="hint">먹은 메뉴가 없어요.</p>
+          <p v-if="!p.items.length" class="hint">{{ t('r.detail.none') }}</p>
           <ul v-else>
             <li v-for="(item, i) in p.items" :key="`${item.menuId}-${i}`" class="detail-row">
               <span class="detail-name">{{ item.name }}</span>
-              <span v-if="item.isCommon" class="stamp stamp-sm">공통</span>
+              <span v-if="item.isCommon" class="stamp stamp-sm">{{ t('stamp.common') }}</span>
               <span class="leader"></span>
               <span class="detail-head num">÷{{ item.headcount }}</span>
-              <span class="detail-share num">{{ formatWon(item.share) }}</span>
+              <span class="detail-share num">{{ num(item.share) }}</span>
             </li>
           </ul>
           <p class="detail-sum num">
-            <span>실제 몫</span>
+            <span>{{ t('r.detail.sum') }}</span>
             <span class="leader"></span>
-            <span>{{ formatWon(p.subtotal) }}원</span>
+            <span>{{ money(p.subtotal) }}</span>
           </p>
           <p v-if="p.payable !== p.subtotal" class="detail-round num">
-            <span>{{ unitLabel }} 내림</span>
+            <span>{{ t('r.detail.round', { unit: unitLabel }) }}</span>
             <span class="leader"></span>
-            <span>−{{ formatWon(p.subtotal - p.payable) }}원</span>
+            <span>−{{ money(p.subtotal - p.payable) }}</span>
           </p>
         </div>
       </li>
@@ -135,40 +142,50 @@ function startOver() {
 
     <div class="collected num">
       <p class="collected-row">
-        <span>걷는 총액</span><span class="leader"></span
-        ><span>{{ formatWon(result.collected) }}원</span>
+        <span>{{ t('r.collected') }}</span><span class="leader"></span
+        ><span>{{ money(result.collected) }}</span>
       </p>
       <p class="collected-row is-sub">
-        <span>결제 총액</span><span class="leader"></span
-        ><span>{{ formatWon(result.charged) }}원</span>
+        <span>{{ t('r.charged') }}</span><span class="leader"></span
+        ><span>{{ money(result.charged) }}</span>
       </p>
       <p v-if="result.remainder > 0" class="collected-rest">
-        <span class="rest-label">남은 금액</span>
-        <span class="rest-amount">{{ formatWon(result.remainder) }}원</span>
-        <span class="rest-note">내림하고 덜 걷힌 금액이에요. 총무가 채우거나 따로 나누세요.</span>
+        <span class="rest-label">{{ t('r.rest') }}</span>
+        <span class="rest-amount">{{ money(result.remainder) }}</span>
+        <span class="rest-note">{{ t('r.rest.note') }}</span>
       </p>
       <p v-else class="collected-row is-ok">
-        <span>딱 맞아요</span><span class="leader"></span><span>0원</span>
+        <span>{{ t('r.exact') }}</span><span class="leader"></span><span>{{ money(0) }}</span>
       </p>
     </div>
 
     <div class="actions">
       <button class="btn btn-go" type="button" @click="copy">
-        {{ copyState === 'done' ? '복사했어요' : copyState === 'fail' ? '복사할 수 없어요' : '결과 복사하기' }}
+        {{
+          copyState === 'done'
+            ? t('r.copy.done')
+            : copyState === 'fail'
+              ? t('r.copy.fail')
+              : t('r.copy')
+        }}
       </button>
-      <button class="btn btn-ghost" type="button" @click="goToStep(2)">메뉴 수정하기</button>
-      <button class="btn btn-ghost" type="button" @click="goToStep(3)">배정 수정하기</button>
+      <button class="btn btn-ghost" type="button" @click="goToStep(2)">{{ t('r.editMenus') }}</button>
+      <button class="btn btn-ghost" type="button" @click="goToStep(3)">{{ t('r.editAssign') }}</button>
 
       <template v-if="!confirmingReset">
         <button class="btn btn-danger" type="button" @click="confirmingReset = true">
-          처음부터 다시하기
+          {{ t('r.restart') }}
         </button>
       </template>
       <div v-else class="confirm">
-        <p class="confirm-q">전부 지우고 새로 시작할까요?</p>
+        <p class="confirm-q">{{ t('r.confirm') }}</p>
         <div class="confirm-actions">
-          <button class="btn btn-ghost" type="button" @click="confirmingReset = false">아니요</button>
-          <button class="btn btn-danger" type="button" @click="startOver">네, 지울게요</button>
+          <button class="btn btn-ghost" type="button" @click="confirmingReset = false">
+            {{ t('r.confirm.no') }}
+          </button>
+          <button class="btn btn-danger" type="button" @click="startOver">
+            {{ t('r.confirm.yes') }}
+          </button>
         </div>
       </div>
     </div>
@@ -201,8 +218,15 @@ function startOver() {
 }
 
 .won {
-  margin-left: 0.15rem;
   font-size: 1.2rem;
+}
+
+.won:first-child {
+  margin-right: 0.1rem;
+}
+
+.won:last-child {
+  margin-left: 0.15rem;
 }
 
 .total-sub {

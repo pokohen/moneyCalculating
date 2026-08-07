@@ -1,13 +1,7 @@
 <script setup>
 import { computed } from 'vue'
-import {
-  formatWon,
-  kindLabel,
-  setAllMembers,
-  state,
-  toggleMember,
-  updateMenu,
-} from '../stores/settlement'
+import { money, num, setAllMembers, state, toggleMember, updateMenu } from '../stores/settlement.js'
+import { t } from '../i18n.js'
 
 const commonMenus = computed(() => state.menus.filter((m) => m.isCommon))
 const pickMenus = computed(() => state.menus.filter((m) => !m.isCommon))
@@ -31,46 +25,54 @@ function makeCommon(menu, common) {
 
 <template>
   <div>
-    <p class="lede">공통이 아닌 메뉴만 고르면 됩니다. 이름을 눌러 넣고 빼세요.</p>
+    <p class="lede">{{ t('a.lede') }}</p>
 
     <section v-if="commonMenus.length" class="common-block">
       <div class="common-head">
-        <span class="stamp">공통</span>
+        <span class="stamp">{{ t('stamp.common') }}</span>
         <p class="common-desc">
-          아래 {{ commonMenus.length }}개는 참가자 {{ state.participants.length }}명이 전부 나눕니다.
+          {{ t('a.common.desc', { n: commonMenus.length, people: state.participants.length }) }}
         </p>
       </div>
       <ul>
         <li v-for="m in commonMenus" :key="m.id" class="common-row">
           <span class="common-name">{{ m.name }}</span>
           <span class="leader"></span>
-          <span class="num common-amount">{{ formatWon(m.amount) }}</span>
-          <button class="switch" type="button" @click="makeCommon(m, false)">개별로</button>
+          <span class="num common-amount">{{ num(m.amount) }}</span>
+          <button class="switch" type="button" @click="makeCommon(m, false)">
+            {{ t('a.toPick') }}
+          </button>
         </li>
       </ul>
       <p class="common-foot num">
-        공통 합계 {{ formatWon(commonTotal) }}원 · 1인당
-        {{ formatWon(state.participants.length ? Math.floor(commonTotal / state.participants.length) : 0) }}원
+        {{
+          t('a.common.foot', {
+            total: money(commonTotal),
+            each: money(
+              state.participants.length ? Math.floor(commonTotal / state.participants.length) : 0,
+            ),
+          })
+        }}
       </p>
     </section>
 
     <section class="pick-block">
       <div class="section-title">
-        <span>개별 메뉴</span>
-        <span class="count num">{{ pickMenus.length }}개</span>
+        <span>{{ t('a.heading') }}</span>
+        <span class="count num">{{ t('a.count', { n: pickMenus.length }) }}</span>
       </div>
 
       <p v-if="!pickMenus.length" class="empty">
-        개별로 나눌 메뉴가 없어요.<br />전부 공통으로 계산됩니다.
+        {{ t('a.empty') }}<br />{{ t('a.empty2') }}
       </p>
 
       <article v-for="m in pickMenus" :key="m.id" class="pick" :class="{ 'is-empty': !m.memberIds.length }">
         <header class="pick-head">
           <div class="pick-title">
-            <span class="kind">{{ kindLabel(m.kind) }}</span>
+            <span class="kind">{{ t(`kind.${m.kind}`) }}</span>
             <h3 class="pick-name">{{ m.name }}</h3>
           </div>
-          <p class="pick-amount num">{{ formatWon(m.amount) }}원</p>
+          <p class="pick-amount num">{{ money(m.amount) }}</p>
         </header>
 
         <ul class="chips">
@@ -88,13 +90,19 @@ function makeCommon(menu, common) {
 
         <footer class="pick-foot">
           <p v-if="m.memberIds.length" class="split num">
-            {{ m.memberIds.length }}명 · 1인당 {{ formatWon(perHead(m)) }}원
+            {{ t('a.split', { n: m.memberIds.length, each: money(perHead(m)) }) }}
           </p>
-          <p v-else class="split is-warn">아무도 없어요</p>
+          <p v-else class="split is-warn">{{ t('a.nobody') }}</p>
           <div class="pick-actions">
-            <button class="switch" type="button" @click="setAllMembers(m.id, true)">전원</button>
-            <button class="switch" type="button" @click="setAllMembers(m.id, false)">해제</button>
-            <button class="switch" type="button" @click="makeCommon(m, true)">공통으로</button>
+            <button class="switch" type="button" @click="setAllMembers(m.id, true)">
+              {{ t('a.all') }}
+            </button>
+            <button class="switch" type="button" @click="setAllMembers(m.id, false)">
+              {{ t('a.none') }}
+            </button>
+            <button class="switch" type="button" @click="makeCommon(m, true)">
+              {{ t('a.toCommon') }}
+            </button>
           </div>
         </footer>
       </article>

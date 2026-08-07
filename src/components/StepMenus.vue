@@ -3,31 +3,38 @@ import { computed, nextTick, ref } from 'vue'
 import {
   KINDS,
   addMenu,
-  formatWon,
+  amountToText,
+  currency,
+  money,
+  normalizeAmountText,
+  num,
+  parseAmount,
   removeMenu,
   state,
   totalAmount,
   updateMenu,
-} from '../stores/settlement'
+} from '../stores/settlement.js'
+import { t } from '../i18n.js'
 
 const draft = ref(newDraft())
 const editingId = ref(null)
 const nameInput = ref(null)
 
 function newDraft() {
-  return { name: '', amount: '', kind: 'food', isCommon: true }
+  return { name: '', amountText: '', kind: 'food', isCommon: true }
 }
 
-// 숫자만 남기고 세 자리마다 쉼표를 넣어 보여준다.
+// 입력창은 문자열 그대로 들고, 저장할 때만 최소 단위 정수로 바꾼다.
 const amountText = computed({
-  get: () => (draft.value.amount === '' ? '' : formatWon(draft.value.amount)),
+  get: () => draft.value.amountText,
   set: (v) => {
-    const digits = String(v).replace(/\D/g, '').slice(0, 9)
-    draft.value.amount = digits === '' ? '' : Number(digits)
+    draft.value.amountText = normalizeAmountText(v)
   },
 })
 
-const canSave = computed(() => draft.value.name.trim() !== '' && Number(draft.value.amount) > 0)
+const canSave = computed(
+  () => draft.value.name.trim() !== '' && parseAmount(draft.value.amountText) > 0,
+)
 
 function pickKind(kind) {
   draft.value.kind = kind.id
@@ -39,7 +46,7 @@ function save() {
   if (!canSave.value) return
   const payload = {
     name: draft.value.name.trim(),
-    amount: Number(draft.value.amount),
+    amount: parseAmount(draft.value.amountText),
     kind: draft.value.kind,
     isCommon: draft.value.isCommon,
   }
@@ -57,7 +64,7 @@ function edit(menu) {
   editingId.value = menu.id
   draft.value = {
     name: menu.name,
-    amount: menu.amount,
+    amountText: amountToText(menu.amount),
     kind: menu.kind,
     isCommon: menu.isCommon,
   }
@@ -78,22 +85,22 @@ function drop(menu) {
 <template>
   <div>
     <p class="lede">
-      주문한 걸 하나씩 넣으세요. <strong>공통</strong>을 켜면 참가자 전원이 1/n,
-      끄면 다음 단계에서 고른 사람끼리만 나눕니다.
+      {{ t('m.lede.a') }} <strong>{{ t('m.lede.common') }}</strong
+      >{{ t('m.lede.b') }}
     </p>
 
     <form class="card form" :class="{ 'is-editing': editingId }" @submit.prevent="save">
-      <p v-if="editingId" class="editing-flag">메뉴 수정 중</p>
+      <p v-if="editingId" class="editing-flag">{{ t('m.editing') }}</p>
 
       <div class="row">
         <label class="field grow">
-          <span class="field-label">메뉴</span>
+          <span class="field-label">{{ t('m.field.name') }}</span>
           <input
             ref="nameInput"
             v-model="draft.name"
             class="input"
             type="text"
-            placeholder="삼겹살 2인분"
+            :placeholder="t('m.placeholder')"
             autocomplete="off"
             enterkeyhint="next"
             maxlength="24"
@@ -103,24 +110,24 @@ function drop(menu) {
 
       <div class="row">
         <label class="field grow">
-          <span class="field-label">금액</span>
-          <div class="amount-wrap">
+          <span class="field-label">{{ t('m.field.amount') }}</span>
+          <div class="amount-wrap" :class="currency.prefix ? 'unit-lead' : 'unit-trail'">
             <input
               v-model="amountText"
               class="input amount num"
               type="text"
-              inputmode="numeric"
-              placeholder="0"
+              :inputmode="currency.decimals ? 'decimal' : 'numeric'"
+              :placeholder="currency.decimals ? '0.00' : '0'"
               enterkeyhint="done"
             />
-            <span class="unit">원</span>
+            <span class="unit">{{ currency.symbol }}</span>
           </div>
         </label>
       </div>
 
       <div class="row">
         <div class="field grow">
-          <span class="field-label">종류</span>
+          <span class="field-label">{{ t('m.field.kind') }}</span>
           <div class="kinds">
             <button
               v-for="k in KINDS"
@@ -130,7 +137,7 @@ function drop(menu) {
               :aria-pressed="draft.kind === k.id"
               @click="pickKind(k)"
             >
-              {{ k.label }}
+              {{ t(`kind.${k.id}`) }}
             </button>
           </div>
         </div>
@@ -145,32 +152,30 @@ function drop(menu) {
       >
         <span class="common-box" aria-hidden="true">{{ draft.isCommon ? '✓' : '' }}</span>
         <span class="common-text">
-          <strong>공통 메뉴</strong>
-          <small>{{
-            draft.isCommon ? '참가자 전원이 나눠 냅니다' : '고른 사람끼리만 나눠 냅니다'
-          }}</small>
+          <strong>{{ t('m.common.title') }}</strong>
+          <small>{{ draft.isCommon ? t('m.common.on') : t('m.common.off') }}</small>
         </span>
-        <span v-if="draft.isCommon" class="stamp">공통</span>
+        <span v-if="draft.isCommon" class="stamp">{{ t('stamp.common') }}</span>
       </button>
 
       <div class="form-actions">
         <button v-if="editingId" class="btn btn-ghost" type="button" @click="cancelEdit">
-          취소
+          {{ t('m.cancel') }}
         </button>
         <button class="btn" type="submit" :disabled="!canSave">
-          {{ editingId ? '수정 저장' : '메뉴 추가' }}
+          {{ editingId ? t('m.save') : t('m.add') }}
         </button>
       </div>
     </form>
 
     <div class="list">
       <div class="section-title">
-        <span>주문 내역</span>
-        <span class="count num">{{ formatWon(totalAmount) }}원</span>
+        <span>{{ t('m.heading') }}</span>
+        <span class="count num">{{ money(totalAmount) }}</span>
       </div>
 
       <p v-if="!state.menus.length" class="empty">
-        아직 넣은 메뉴가 없어요.<br />영수증을 보면서 하나씩 추가하세요.
+        {{ t('m.empty') }}<br />{{ t('m.empty2') }}
       </p>
 
       <ul v-else class="menus">
@@ -178,15 +183,25 @@ function drop(menu) {
           <button class="menu-main" type="button" @click="edit(m)">
             <span class="menu-line">
               <span class="menu-name">{{ m.name }}</span>
-              <span v-if="m.isCommon" class="stamp stamp-sm">공통</span>
+              <span v-if="m.isCommon" class="stamp stamp-sm">{{ t('stamp.common') }}</span>
               <span class="leader"></span>
-              <span class="menu-amount num">{{ formatWon(m.amount) }}</span>
+              <span class="menu-amount num">{{ num(m.amount) }}</span>
             </span>
             <span class="menu-sub">
-              {{ m.isCommon ? `전원 ${state.participants.length}명` : '고른 사람만' }} · 눌러서 수정
+              {{
+                m.isCommon
+                  ? t('m.sub.common', { n: state.participants.length })
+                  : t('m.sub.pick')
+              }}
+              · {{ t('m.sub.tap') }}
             </span>
           </button>
-          <button class="menu-del" type="button" :aria-label="`${m.name} 삭제`" @click="drop(m)">
+          <button
+            class="menu-del"
+            type="button"
+            :aria-label="t('m.delete', { name: m.name })"
+            @click="drop(m)"
+          >
             ×
           </button>
         </li>
@@ -239,20 +254,34 @@ function drop(menu) {
 }
 
 .amount {
-  padding-right: 2.25rem;
   font-size: 1.15rem;
   font-weight: 700;
   text-align: right;
 }
 
+.unit-trail .amount {
+  padding-right: 2.25rem;
+}
+
+.unit-lead .amount {
+  padding-left: 2.25rem;
+}
+
 .unit {
   position: absolute;
   top: 50%;
-  right: 0.85rem;
   transform: translateY(-50%);
   color: var(--ink-3);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   pointer-events: none;
+}
+
+.unit-trail .unit {
+  right: 0.85rem;
+}
+
+.unit-lead .unit {
+  left: 0.85rem;
 }
 
 .kinds {
