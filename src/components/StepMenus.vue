@@ -1,10 +1,11 @@
 <script setup>
 import { computed, nextTick, ref } from 'vue'
 import {
-  KINDS,
   addMenu,
   amountToText,
+  bumpQty,
   currency,
+  lineTotal,
   money,
   normalizeAmountText,
   num,
@@ -21,7 +22,7 @@ const editingId = ref(null)
 const nameInput = ref(null)
 
 function newDraft() {
-  return { name: '', amountText: '', kind: 'food', isCommon: true }
+  return { name: '', amountText: '', qty: 1, isCommon: true }
 }
 
 // 입력창은 문자열 그대로 들고, 저장할 때만 최소 단위 정수로 바꾼다.
@@ -32,22 +33,19 @@ const amountText = computed({
   },
 })
 
-const canSave = computed(
-  () => draft.value.name.trim() !== '' && parseAmount(draft.value.amountText) > 0,
-)
+const unitPrice = computed(() => parseAmount(draft.value.amountText))
+const canSave = computed(() => draft.value.name.trim() !== '' && unitPrice.value > 0)
 
-function pickKind(kind) {
-  draft.value.kind = kind.id
-  // 수정 중일 땐 사용자가 정한 공통 여부를 존중한다.
-  if (!editingId.value) draft.value.isCommon = kind.defaultCommon
+function stepDraftQty(delta) {
+  draft.value.qty = Math.max(1, draft.value.qty + delta)
 }
 
 function save() {
   if (!canSave.value) return
   const payload = {
     name: draft.value.name.trim(),
-    amount: parseAmount(draft.value.amountText),
-    kind: draft.value.kind,
+    amount: unitPrice.value,
+    qty: draft.value.qty,
     isCommon: draft.value.isCommon,
   }
   if (editingId.value) {
@@ -65,7 +63,7 @@ function edit(menu) {
   draft.value = {
     name: menu.name,
     amountText: amountToText(menu.amount),
-    kind: menu.kind,
+    qty: menu.qty,
     isCommon: menu.isCommon,
   }
   nextTick(() => nameInput.value?.focus())
@@ -84,10 +82,7 @@ function drop(menu) {
 
 <template>
   <div>
-    <p class="lede">
-      {{ t('m.lede.a') }} <strong>{{ t('m.lede.common') }}</strong
-      >{{ t('m.lede.b') }}
-    </p>
+    <p class="lede">{{ t('m.lede') }}</p>
 
     <form class="card form" :class="{ 'is-editing': editingId }" @submit.prevent="save">
       <p v-if="editingId" class="editing-flag">{{ t('m.editing') }}</p>
@@ -108,7 +103,7 @@ function drop(menu) {
         </label>
       </div>
 
-      <div class="row">
+      <div class="row row-split">
         <label class="field grow">
           <span class="field-label">{{ t('m.field.amount') }}</span>
           <div class="amount-wrap" :class="currency.prefix ? 'unit-lead' : 'unit-trail'">
@@ -123,40 +118,65 @@ function drop(menu) {
             <span class="unit">{{ currency.symbol }}</span>
           </div>
         </label>
-      </div>
 
-      <div class="row">
-        <div class="field grow">
-          <span class="field-label">{{ t('m.field.kind') }}</span>
-          <div class="kinds">
+        <div class="field qty-field">
+          <span class="field-label">{{ t('m.field.qty') }}</span>
+          <div class="stepper">
             <button
-              v-for="k in KINDS"
-              :key="k.id"
-              class="chip"
+              class="step-btn"
               type="button"
-              :aria-pressed="draft.kind === k.id"
-              @click="pickKind(k)"
+              :disabled="draft.qty <= 1"
+              aria-label="−"
+              @click="stepDraftQty(-1)"
             >
-              {{ t(`kind.${k.id}`) }}
+              −
+            </button>
+            <span class="step-value num">{{ draft.qty }}</span>
+            <button class="step-btn" type="button" aria-label="+" @click="stepDraftQty(1)">
+              +
             </button>
           </div>
         </div>
       </div>
 
-      <button
-        class="common-toggle"
-        type="button"
-        :class="{ 'is-on': draft.isCommon }"
-        :aria-pressed="draft.isCommon"
-        @click="draft.isCommon = !draft.isCommon"
-      >
-        <span class="common-box" aria-hidden="true">{{ draft.isCommon ? '✓' : '' }}</span>
-        <span class="common-text">
-          <strong>{{ t('m.common.title') }}</strong>
-          <small>{{ draft.isCommon ? t('m.common.on') : t('m.common.off') }}</small>
-        </span>
-        <span v-if="draft.isCommon" class="stamp">{{ t('stamp.common') }}</span>
-      </button>
+      <p v-if="draft.qty > 1 && unitPrice > 0" class="line-total num">
+        {{
+          t('m.qty.line', {
+            price: money(unitPrice),
+            n: draft.qty,
+            total: money(unitPrice * draft.qty),
+          })
+        }}
+      </p>
+
+      <!-- 이 메뉴를 누가 나눠 낼지. 계산에 실제로 영향을 주는 유일한 구분이다. -->
+      <div class="row">
+        <div class="field grow">
+          <span class="field-label">{{ t('m.field.split') }}</span>
+          <div class="splits">
+            <button
+              class="chip split-common"
+              type="button"
+              :aria-pressed="draft.isCommon"
+              @click="draft.isCommon = true"
+            >
+              {{ t('m.split.common') }}
+            </button>
+            <button
+              class="chip"
+              type="button"
+              :aria-pressed="!draft.isCommon"
+              @click="draft.isCommon = false"
+            >
+              {{ t('m.split.pick') }}
+            </button>
+          </div>
+          <p class="split-note" :class="{ 'is-common': draft.isCommon }">
+            <span v-if="draft.isCommon" class="stamp stamp-sm">{{ t('stamp.common') }}</span>
+            {{ draft.isCommon ? t('m.common.on') : t('m.common.off') }}
+          </p>
+        </div>
+      </div>
 
       <div class="form-actions">
         <button v-if="editingId" class="btn btn-ghost" type="button" @click="cancelEdit">
@@ -183,11 +203,15 @@ function drop(menu) {
           <button class="menu-main" type="button" @click="edit(m)">
             <span class="menu-line">
               <span class="menu-name">{{ m.name }}</span>
+              <span v-if="m.qty > 1" class="menu-qty num">×{{ m.qty }}</span>
               <span v-if="m.isCommon" class="stamp stamp-sm">{{ t('stamp.common') }}</span>
               <span class="leader"></span>
-              <span class="menu-amount num">{{ num(m.amount) }}</span>
+              <span class="menu-amount num">{{ num(lineTotal(m)) }}</span>
             </span>
             <span class="menu-sub">
+              <template v-if="m.qty > 1">
+                {{ t('m.sub.unit', { price: money(m.amount) }) }} ·
+              </template>
               {{
                 m.isCommon
                   ? t('m.sub.common', { n: state.participants.length })
@@ -196,6 +220,28 @@ function drop(menu) {
               · {{ t('m.sub.tap') }}
             </span>
           </button>
+
+          <!-- 소주 한 병 더 시켰을 때 메뉴를 열지 않고 바로 올린다. -->
+          <div class="menu-qty-ctrl">
+            <button
+              class="step-btn"
+              type="button"
+              :disabled="m.qty <= 1"
+              :aria-label="t('m.qty.down', { name: m.name })"
+              @click="bumpQty(m.id, -1)"
+            >
+              −
+            </button>
+            <button
+              class="step-btn"
+              type="button"
+              :aria-label="t('m.qty.up', { name: m.name })"
+              @click="bumpQty(m.id, 1)"
+            >
+              +
+            </button>
+          </div>
+
           <button
             class="menu-del"
             type="button"
@@ -245,8 +291,77 @@ function drop(menu) {
   margin-top: 0.75rem;
 }
 
+/* 금액과 수량은 라벨 아래 남은 높이를 똑같이 채운다.
+   금액 입력창이 글자 크기 때문에 --tap 보다 커져도 둘의 높이가 맞는다. */
+.row-split {
+  display: flex;
+  align-items: stretch;
+  gap: 0.6rem;
+}
+
+.row-split .field {
+  display: flex;
+  flex-direction: column;
+}
+
+.row-split .amount-wrap,
+.row-split .stepper {
+  flex: 1;
+}
+
+.row-split .input {
+  height: 100%;
+}
+
 .grow {
   flex: 1;
+  min-width: 0;
+}
+
+.qty-field {
+  flex: 0 0 auto;
+}
+
+/* 수량 조절: 한 손으로 누르는 자리라 버튼을 크게 잡는다 */
+.stepper {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  border: 1.5px solid var(--rule);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.step-btn {
+  width: 40px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.step-btn:disabled {
+  color: var(--paper-3);
+  cursor: not-allowed;
+}
+
+.step-value {
+  min-width: 1.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.line-total {
+  margin-top: 0.55rem;
+  color: var(--soju);
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-align: right;
 }
 
 .amount-wrap {
@@ -284,67 +399,34 @@ function drop(menu) {
   left: 0.85rem;
 }
 
-.kinds {
+.splits {
   display: flex;
   gap: 0.4rem;
 }
 
-.kinds .chip {
+.splits .chip {
   flex: 1;
   justify-content: center;
 }
 
-.common-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  width: 100%;
-  min-height: var(--tap);
-  margin-top: 0.9rem;
-  padding: 0.6rem 0.75rem;
-  border: 1.5px solid var(--rule);
-  border-radius: var(--radius);
-  background: #fff;
-  text-align: left;
-}
-
-.common-toggle.is-on {
-  border-color: var(--stamp);
-  background: var(--stamp-soft);
-}
-
-.common-box {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  border: 1.5px solid var(--rule);
-  border-radius: 3px;
-  background: #fff;
-  color: #fff;
-  font-size: 0.9rem;
-  font-weight: 700;
-}
-
-.common-toggle.is-on .common-box {
+/* 공통은 이 앱에서 늘 도장 빨강이다. 개별은 다른 칩과 같은 초록. */
+.split-common[aria-pressed='true'] {
   border-color: var(--stamp);
   background: var(--stamp);
 }
 
-.common-text {
+.split-note {
   display: flex;
-  flex-direction: column;
-  line-height: 1.3;
-}
-
-.common-text small {
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
   color: var(--ink-3);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
 }
 
-.common-toggle .stamp {
-  margin-left: auto;
+.split-note.is-common {
+  color: var(--stamp);
+  font-weight: 600;
 }
 
 .form-actions {
@@ -423,9 +505,36 @@ function drop(menu) {
   font-size: 0.6rem;
 }
 
+.menu-qty {
+  flex: 0 0 auto;
+  color: var(--ink-2);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.menu-qty-ctrl {
+  display: flex;
+  flex: 0 0 auto;
+  align-self: center;
+  border: 1.5px solid var(--rule);
+  border-radius: 999px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.menu-qty-ctrl .step-btn {
+  width: 34px;
+  height: 34px;
+  font-size: 1rem;
+}
+
+.menu-qty-ctrl .step-btn + .step-btn {
+  border-left: 1px solid var(--rule);
+}
+
 .menu-del {
   flex: 0 0 auto;
-  width: 44px;
+  width: 36px;
   border: 0;
   background: none;
   color: var(--ink-3);

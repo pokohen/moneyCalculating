@@ -120,9 +120,17 @@ function startOver() {
           <ul v-else>
             <li v-for="(item, i) in p.items" :key="`${item.menuId}-${i}`" class="detail-row">
               <span class="detail-name">{{ item.name }}</span>
+              <span v-if="item.qty > 1" class="detail-qty num">×{{ item.qty }}</span>
               <span v-if="item.isCommon" class="stamp stamp-sm">{{ t('stamp.common') }}</span>
               <span class="leader"></span>
-              <span class="detail-head num">÷{{ item.headcount }}</span>
+              <!-- 모두 1개씩이면 그냥 몇 명이 나눴는지, 아니면 몇 개 중 몇 개인지 -->
+              <span class="detail-head num">
+                {{
+                  item.totalUnits === item.headcount
+                    ? `÷${item.headcount}`
+                    : `${item.units}/${item.totalUnits}`
+                }}
+              </span>
               <span class="detail-share num">{{ num(item.share) }}</span>
             </li>
           </ul>
@@ -357,6 +365,7 @@ function startOver() {
   white-space: nowrap;
 }
 
+.detail-qty,
 .detail-head {
   flex: 0 0 auto;
   color: var(--ink-3);

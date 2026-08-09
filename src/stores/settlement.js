@@ -31,29 +31,54 @@ export const CURRENCIES = {
 };
 export const CURRENCY_CODES = Object.keys(CURRENCIES);
 
+export const ASSIGN_VIEWS = ["menu", "person"];
+
 // 처음 열었을 때만 언어로 짐작한다. 그 뒤로는 사용자가 고른 값을 따른다.
 const GUESS_BY_LOCALE = { ko: "KRW", ja: "JPY", en: "USD" };
 
 // 화면에 보이는 이름은 언어별로 다르므로 i18n의 step.1 … step.4 를 쓴다.
 export const STEPS = [1, 2, 3, 4];
 
-// 안주는 기본이 공통, 주류는 기본이 마신 사람만.
-export const KINDS = [
-  { id: "food", defaultCommon: true },
-  { id: "drink", defaultCommon: false },
-  { id: "etc", defaultCommon: true },
-];
-
 const blankState = () => {
   const code = GUESS_BY_LOCALE[locale.value] ?? "KRW";
   return {
     step: 1,
     participants: [], // { id, name }
-    menus: [], // { id, name, amount, kind, isCommon, memberIds }
+    // amount 는 단가다. 줄 합계는 lineTotal() 로 구한다.
+    menus: [], // { id, name, amount, qty, isCommon, shares }
     currency: code,
     roundUnit: CURRENCIES[code].defaultUnit,
+    // 배정 화면을 메뉴 기준으로 볼지 사람 기준으로 볼지
+    assignView: "menu",
   };
 };
+
+/* 사람마다 몇 개 가져갔는지. 인원만 고르던 시절의 저장본(memberIds)은 한 사람당 1개로 읽는다. */
+function readShares(menu, knownIds) {
+  const qty = Number.isFinite(menu.qty) ? Math.max(1, Math.round(menu.qty)) : 1;
+  const shares = {};
+  const put = (id, n) => {
+    if (!knownIds.has(id)) return;
+    const units = Math.min(qty, Math.max(1, Math.round(n)));
+    if (Number.isFinite(units)) shares[id] = units;
+  };
+
+  if (menu.shares && typeof menu.shares === "object") {
+    Object.entries(menu.shares).forEach(([id, n]) => {
+      if (Number.isFinite(n) && n > 0) put(id, n);
+    });
+  } else if (Array.isArray(menu.memberIds)) {
+    menu.memberIds.forEach((id) => put(id, 1));
+  }
+  return shares;
+}
+
+/** 수량이 줄면 그보다 많이 가져간 사람의 개수도 따라 줄인다. */
+function clampShares(menu) {
+  Object.keys(menu.shares).forEach((id) => {
+    menu.shares[id] = Math.min(menu.shares[id], menu.qty);
+  });
+}
 
 let idSeq = 0;
 function newId(prefix) {
@@ -86,12 +111,10 @@ function loadState() {
             amount: Number.isFinite(m.amount)
               ? Math.max(0, Math.round(m.amount))
               : 0,
-            kind: KINDS.some((k) => k.id === m.kind) ? m.kind : "etc",
+            // 수량이 없던 시절에 저장된 계산서는 1개로 읽는다. 그러면 줄 합계가 그대로다.
+            qty: Number.isFinite(m.qty) ? Math.max(1, Math.round(m.qty)) : 1,
             isCommon: Boolean(m.isCommon),
-            // 지워진 참가자가 메뉴에 남아 있지 않도록 걸러낸다.
-            memberIds: Array.isArray(m.memberIds)
-              ? m.memberIds.filter((id) => knownIds.has(id))
-              : [],
+            shares: readShares(m, knownIds),
           }))
       : [];
 
@@ -108,6 +131,9 @@ function loadState() {
       roundUnit: units.includes(saved.roundUnit)
         ? saved.roundUnit
         : defaultUnit,
+      assignView: ASSIGN_VIEWS.includes(saved.assignView)
+        ? saved.assignView
+        : "menu",
     };
   } catch {
     return fallback;
@@ -163,19 +189,19 @@ export function addParticipant(name) {
 export function removeParticipant(id) {
   state.participants = state.participants.filter((p) => p.id !== id);
   state.menus.forEach((m) => {
-    m.memberIds = m.memberIds.filter((mid) => mid !== id);
+    delete m.shares[id];
   });
 }
 
-export function addMenu({ name, amount, kind, isCommon }) {
+export function addMenu({ name, amount, qty, isCommon }) {
   const menu = {
     id: newId("m"),
     name: name.trim(),
     amount: Math.max(0, Math.round(amount)),
-    kind,
+    qty: Math.max(1, Math.round(qty ?? 1)),
     isCommon,
-    // 개별 메뉴는 아무도 없는 상태로 시작한다. 배정 단계에서 먹은 사람만 넣는다.
-    memberIds: [],
+    // 개별 메뉴는 아무도 없는 상태로 시작한다. 배정 단계에서 먹은 만큼 담는다.
+    shares: {},
   };
   state.menus.push(menu);
   return menu;
@@ -185,25 +211,66 @@ export function updateMenu(id, patch) {
   const menu = state.menus.find((m) => m.id === id);
   if (!menu) return;
   Object.assign(menu, patch);
-  if (menu.isCommon) menu.memberIds = [];
+  if (menu.isCommon) menu.shares = {};
+  clampShares(menu);
 }
 
 export function removeMenu(id) {
   state.menus = state.menus.filter((m) => m.id !== id);
 }
 
-export function toggleMember(menuId, participantId) {
+/** 한 줄에 실제로 붙는 금액. 단가 × 수량. */
+export function lineTotal(menu) {
+  return menu.amount * menu.qty;
+}
+
+/** 목록에서 바로 수량을 올리고 내린다. 1개 아래로는 내려가지 않는다. */
+export function bumpQty(id, delta) {
+  const menu = state.menus.find((m) => m.id === id);
+  if (!menu) return;
+  menu.qty = Math.max(1, menu.qty + delta);
+  clampShares(menu);
+}
+
+/** 이 사람이 이 메뉴를 몇 개 가져갔는지. */
+export function shareOf(menu, participantId) {
+  return menu.shares[participantId] ?? 0;
+}
+
+/** 한 줄에 배정된 개수의 합. 0이면 아직 아무도 안 가져간 메뉴다. */
+export function unitsOf(menu) {
+  return Object.values(menu.shares).reduce((sum, n) => sum + n, 0);
+}
+
+/** 눌러서 개수를 하나씩 올린다. 수량만큼 채우면 0으로 돌아간다.
+    수량이 1인 메뉴에서는 지금까지처럼 켜고 끄는 동작이 된다. */
+export function cycleShare(menuId, participantId) {
   const menu = state.menus.find((m) => m.id === menuId);
   if (!menu || menu.isCommon) return;
-  menu.memberIds = menu.memberIds.includes(participantId)
-    ? menu.memberIds.filter((id) => id !== participantId)
-    : [...menu.memberIds, participantId];
+  const next = (shareOf(menu, participantId) + 1) % (menu.qty + 1);
+  if (next === 0) delete menu.shares[participantId];
+  else menu.shares[participantId] = next;
+}
+
+/** 그 사람이 이 메뉴에서 가져간 걸 전부 비운다. */
+export function clearShare(menuId, participantId) {
+  const menu = state.menus.find((m) => m.id === menuId);
+  if (menu) delete menu.shares[participantId];
+}
+
+/** 참가자 한 명이 가져간 개별 메뉴를 전부 비운다. */
+export function clearPerson(participantId) {
+  state.menus.forEach((m) => {
+    if (!m.isCommon) delete m.shares[participantId];
+  });
 }
 
 export function setAllMembers(menuId, on) {
   const menu = state.menus.find((m) => m.id === menuId);
   if (!menu || menu.isCommon) return;
-  menu.memberIds = on ? state.participants.map((p) => p.id) : [];
+  menu.shares = on
+    ? Object.fromEntries(state.participants.map((p) => [p.id, 1]))
+    : {};
 }
 
 export function resetAll() {
@@ -212,28 +279,38 @@ export function resetAll() {
 
 /* ── 계산 ──────────────────────────────────────── */
 
-// 총액을 인원수만큼 1원 단위 정수로 쪼갠다. 나머지 1원은 앞사람부터 한 번씩.
-function splitEvenly(amount, count) {
-  const base = Math.floor(amount / count);
-  const remainder = amount - base * count;
-  return Array.from(
-    { length: count },
-    (_, i) => base + (i < remainder ? 1 : 0),
-  );
+/* 총액을 가져간 개수에 비례해 1원 단위 정수로 쪼갠다.
+   남는 1원은 소수부가 큰 사람부터 한 번씩 — 최대 나머지 방식이라 합이 총액과 정확히 맞는다.
+   모두 1개씩이면 예전의 균등 1/n 과 결과가 같다. */
+function splitByUnits(amount, units) {
+  const total = units.reduce((sum, n) => sum + n, 0);
+  const exact = units.map((n) => (amount * n) / total);
+  const shares = exact.map(Math.floor);
+  let remainder = amount - shares.reduce((sum, n) => sum + n, 0);
+
+  const order = exact
+    .map((value, i) => ({ i, frac: value - Math.floor(value) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (let k = 0; k < remainder; k += 1) shares[order[k].i] += 1;
+  return shares;
 }
 
+/** 이 줄을 나눠 낼 사람과 각자의 개수. 참가자 입력 순서를 따른다. */
 function payersOf(menu) {
-  if (menu.isCommon) return state.participants.map((p) => p.id);
-  const ordered = state.participants.map((p) => p.id);
-  return ordered.filter((id) => menu.memberIds.includes(id));
+  if (menu.isCommon) {
+    return state.participants.map((p) => ({ id: p.id, units: 1 }));
+  }
+  return state.participants
+    .map((p) => ({ id: p.id, units: shareOf(menu, p.id) }))
+    .filter((row) => row.units > 0);
 }
 
 export const menusWithoutMembers = computed(() =>
-  state.menus.filter((m) => !m.isCommon && payersOf(m).length === 0),
+  state.menus.filter((m) => !m.isCommon && unitsOf(m) === 0),
 );
 
 export const totalAmount = computed(() =>
-  state.menus.reduce((sum, m) => sum + m.amount, 0),
+  state.menus.reduce((sum, m) => sum + lineTotal(m), 0),
 );
 
 export const settlement = computed(() => {
@@ -248,20 +325,26 @@ export const settlement = computed(() => {
   state.menus.forEach((menu) => {
     const payers = payersOf(menu);
     if (payers.length === 0) {
-      unassignedAmount += menu.amount;
+      unassignedAmount += lineTotal(menu);
       return;
     }
-    const shares = splitEvenly(menu.amount, payers.length);
-    payers.forEach((pid, i) => {
-      const row = byPerson.get(pid);
+    const totalUnits = payers.reduce((sum, row) => sum + row.units, 0);
+    const shares = splitByUnits(
+      lineTotal(menu),
+      payers.map((row) => row.units),
+    );
+    payers.forEach((payer, i) => {
+      const row = byPerson.get(payer.id);
       if (!row) return;
       row.subtotal += shares[i];
       row.items.push({
         menuId: menu.id,
         name: menu.name,
-        kind: menu.kind,
+        qty: menu.qty,
         isCommon: menu.isCommon,
         share: shares[i],
+        units: payer.units,
+        totalUnits,
         headcount: payers.length,
       });
     });
