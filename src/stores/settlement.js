@@ -204,6 +204,7 @@ export function addMenu({ name, amount, qty, isCommon }) {
     shares: {},
   };
   state.menus.push(menu);
+  rememberMenu(menu);
   return menu;
 }
 
@@ -275,6 +276,152 @@ export function setAllMembers(menuId, on) {
 
 export function resetAll() {
   Object.assign(state, blankState());
+}
+
+/* ── 자주 쓰는 메뉴 ──────────────────────────────
+
+   계산서와 따로 산다. '처음부터'로 계산서를 지워도 여기는 남아야 다음 회식에서 꺼내 쓴다.
+   그래서 저장 칸도 따로 쓴다. 같은 이름은 한 줄로 합치고 금액은 마지막에 넣은 값으로
+   갱신한다 — 가격이 오르면 목록도 따라 오른다.
+   통화는 섞지 않는다. 15,000원짜리 삼겹살이 달러 화면에서 $15,000.00 로 보이면 안 된다. */
+
+const RECENT_KEY = "hoesik.recent.v1";
+const RECENT_KEEP = 30; // 저장해 두는 개수
+const RECENT_SHOW = 8; // 접어 두지 않고 바로 띄우는 개수
+
+/** 같은 메뉴인지 보는 기준. 띄어쓰기와 대소문자는 무시한다. */
+const recentKey = (name) => String(name).trim().toLowerCase().replace(/\s+/g, "");
+
+function loadRecents() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    if (!Array.isArray(saved)) return [];
+    return saved
+      .filter((r) => r && typeof r.name === "string" && r.name.trim() !== "")
+      .map((r) => ({
+        id: typeof r.id === "string" ? r.id : newId("r"),
+        name: String(r.name).slice(0, 24),
+        amount: Number.isFinite(r.amount)
+          ? Math.max(0, Math.round(r.amount))
+          : 0,
+        isCommon: Boolean(r.isCommon),
+        currency: CURRENCY_CODES.includes(r.currency) ? r.currency : "KRW",
+        count: Number.isFinite(r.count) ? Math.max(1, Math.round(r.count)) : 1,
+        at: Number.isFinite(r.at) ? r.at : 0,
+      }))
+      .slice(0, RECENT_KEEP);
+  } catch {
+    return [];
+  }
+}
+
+export const recents = reactive(loadRecents());
+
+watch(recents, () => {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(recents));
+  } catch {
+    /* 저장소가 막혀 있어도 계산은 계속된다 */
+  }
+});
+
+/** 지금 통화로 넣은 것만. 자주 쓴 순, 같으면 최근에 쓴 순. */
+export const currentRecents = computed(() =>
+  recents
+    .filter((r) => r.currency === state.currency && r.amount > 0)
+    .sort((a, b) => b.count - a.count || b.at - a.at),
+);
+
+export const topRecents = computed(() =>
+  currentRecents.value.slice(0, RECENT_SHOW),
+);
+
+/** 메뉴를 넣을 때마다 불린다. 같은 이름이 있으면 금액만 갱신하고 횟수를 올린다. */
+function rememberMenu({ name, amount, isCommon }) {
+  const clean = String(name).trim();
+  if (!clean || amount <= 0) return;
+
+  const key = recentKey(clean);
+  const found = recents.find(
+    (r) => recentKey(r.name) === key && r.currency === state.currency,
+  );
+  if (found) {
+    found.name = clean;
+    found.amount = amount;
+    found.isCommon = isCommon;
+    found.count += 1;
+    found.at = Date.now();
+    return;
+  }
+
+  recents.push({
+    id: newId("r"),
+    name: clean,
+    amount,
+    isCommon,
+    currency: state.currency,
+    count: 1,
+    at: Date.now(),
+  });
+
+  // 넘치면 제일 안 쓰고 오래된 것부터 밀어낸다.
+  if (recents.length > RECENT_KEEP) {
+    const stale = [...recents].sort(
+      (a, b) => a.count - b.count || a.at - b.at,
+    )[0];
+    const i = recents.indexOf(stale);
+    if (i !== -1) recents.splice(i, 1);
+  }
+}
+
+/** 칩을 누르면 부른다. 이름과 금액이 같은 줄이 이미 있으면 수량만 올린다. */
+export function addFromRecent(id) {
+  const recent = recents.find((r) => r.id === id);
+  if (!recent) return null;
+
+  const key = recentKey(recent.name);
+  const already = state.menus.find(
+    (m) => recentKey(m.name) === key && m.amount === recent.amount,
+  );
+  if (already) {
+    already.qty += 1;
+    recent.count += 1;
+    recent.at = Date.now();
+    return already;
+  }
+
+  // addMenu 안에서 rememberMenu 가 불리므로 횟수는 거기서 올라간다.
+  return addMenu({
+    name: recent.name,
+    amount: recent.amount,
+    qty: 1,
+    isCommon: recent.isCommon,
+  });
+}
+
+export function updateRecent(id, patch) {
+  const recent = recents.find((r) => r.id === id);
+  if (!recent) return;
+  if (typeof patch.name === "string") {
+    const clean = patch.name.trim().slice(0, 24);
+    if (clean) recent.name = clean;
+  }
+  if (Number.isFinite(patch.amount) && patch.amount > 0) {
+    recent.amount = Math.round(patch.amount);
+  }
+  if ("isCommon" in patch) recent.isCommon = Boolean(patch.isCommon);
+}
+
+export function removeRecent(id) {
+  const i = recents.findIndex((r) => r.id === id);
+  if (i !== -1) recents.splice(i, 1);
+}
+
+/** 지금 통화로 모아 둔 것만 지운다. 다른 통화 목록은 남긴다. */
+export function clearRecents() {
+  for (let i = recents.length - 1; i >= 0; i -= 1) {
+    if (recents[i].currency === state.currency) recents.splice(i, 1);
+  }
 }
 
 /* ── 계산 ──────────────────────────────────────── */

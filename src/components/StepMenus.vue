@@ -1,8 +1,11 @@
 <script setup>
 import { computed, nextTick, ref } from 'vue'
 import {
+  addFromRecent,
   addMenu,
   amountToText,
+  clearRecents,
+  currentRecents,
   bumpQty,
   currency,
   lineTotal,
@@ -12,9 +15,12 @@ import {
   parseAmount,
   parseQuickAdd,
   removeMenu,
+  removeRecent,
   state,
+  topRecents,
   totalAmount,
   updateMenu,
+  updateRecent,
 } from '../stores/settlement.js'
 import { t } from '../i18n.js'
 
@@ -30,6 +36,40 @@ const quickInput = ref(null)
 const quickCommon = ref(true)
 
 const quickParsed = computed(() => parseQuickAdd(quick.value))
+
+// 자주 쓰는 메뉴. 편집 중에는 원본을 바로 건드리지 않고 초안에 담아 뒀다가 '완료'에 한번에 쓴다.
+const editingRecents = ref(false)
+const recentDrafts = ref({})
+
+function startEditRecents() {
+  recentDrafts.value = Object.fromEntries(
+    currentRecents.value.map((r) => [
+      r.id,
+      { name: r.name, amountText: amountToText(r.amount) },
+    ]),
+  )
+  editingRecents.value = true
+}
+
+function finishEditRecents() {
+  // 이름을 비웠거나 0원이 된 줄은 손대지 않고 원래대로 둔다.
+  Object.entries(recentDrafts.value).forEach(([id, d]) => {
+    updateRecent(id, { name: d.name, amount: parseAmount(d.amountText) })
+  })
+  recentDrafts.value = {}
+  editingRecents.value = false
+}
+
+function dropRecent(id) {
+  removeRecent(id)
+  delete recentDrafts.value[id]
+}
+
+function wipeRecents() {
+  clearRecents()
+  recentDrafts.value = {}
+  editingRecents.value = false
+}
 
 function newDraft() {
   return { name: '', amountText: '', qty: 1, isCommon: true }
@@ -187,6 +227,78 @@ function drop(menu) {
         </button>
       </div>
     </form>
+
+    <!-- 지난 회식에서 쓴 메뉴. 계산서를 지워도 남아서 다음에 그대로 꺼내 쓴다. -->
+    <section v-if="!editingId && topRecents.length" class="card recents">
+      <div class="recents-head">
+        <span class="field-label">{{ t('m.recent.label') }}</span>
+        <button
+          class="link-btn"
+          type="button"
+          @click="editingRecents ? finishEditRecents() : startEditRecents()"
+        >
+          {{ editingRecents ? t('m.recent.done') : t('m.recent.edit') }}
+        </button>
+      </div>
+
+      <div v-if="!editingRecents" class="recent-chips">
+        <button
+          v-for="r in topRecents"
+          :key="r.id"
+          class="chip recent-chip"
+          type="button"
+          @click="addFromRecent(r.id)"
+        >
+          <span class="recent-name">{{ r.name }}</span>
+          <span class="recent-amount num">{{ money(r.amount) }}</span>
+          <span v-if="r.isCommon" class="stamp stamp-sm">{{ t('stamp.common') }}</span>
+        </button>
+      </div>
+
+      <ul v-else class="recent-rows">
+        <li v-for="r in currentRecents" :key="r.id" class="recent-row">
+          <input
+            v-model="recentDrafts[r.id].name"
+            class="input recent-name-input"
+            type="text"
+            maxlength="24"
+          />
+          <div
+            class="amount-wrap recent-amount-wrap"
+            :class="currency.prefix ? 'unit-lead' : 'unit-trail'"
+          >
+            <input
+              v-model="recentDrafts[r.id].amountText"
+              class="input amount num"
+              type="text"
+              :inputmode="currency.decimals ? 'decimal' : 'numeric'"
+              @blur="
+                recentDrafts[r.id].amountText = normalizeAmountText(
+                  recentDrafts[r.id].amountText,
+                )
+              "
+            />
+            <span class="unit">{{ currency.symbol }}</span>
+          </div>
+          <button
+            class="menu-del"
+            type="button"
+            :aria-label="t('m.recent.drop', { name: r.name })"
+            @click="dropRecent(r.id)"
+          >
+            ×
+          </button>
+        </li>
+      </ul>
+
+      <p v-if="!editingRecents" class="hint recents-foot">{{ t('m.recent.hint') }}</p>
+      <div v-else class="recents-foot">
+        <span class="hint">{{ t('m.recent.editHint') }}</span>
+        <button class="link-btn is-danger" type="button" @click="wipeRecents">
+          {{ t('m.recent.clear') }}
+        </button>
+      </div>
+    </section>
 
     <form class="card form" :class="{ 'is-editing': editingId }" @submit.prevent="save">
       <p v-if="editingId" class="editing-flag">{{ t('m.editing') }}</p>
@@ -422,6 +534,102 @@ function drop(menu) {
 
 .quick .splits {
   margin-top: 0.7rem;
+}
+
+/* 자주 쓰는 메뉴. 빠른 추가와 같은 '지름길'이라 바로 아래에 붙인다. */
+.recents {
+  margin-bottom: 0.75rem;
+}
+
+.recents-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.link-btn {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.1rem;
+  border: 0;
+  background: none;
+  color: var(--soju);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  /* 좁은 화면에서 '목록 비우기'가 두 줄로 접히면 안내 문구와 엉킨다. */
+  white-space: nowrap;
+}
+
+.link-btn.is-danger {
+  color: var(--stamp);
+}
+
+.recent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+/* 이름과 금액을 한 칩 안에 둔다. 금액은 한 톤 죽여서 이름이 먼저 읽히게. */
+.recent-chip {
+  max-width: 100%;
+}
+
+.recent-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-amount {
+  color: var(--ink-3);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.recent-chip[aria-pressed='true'] .recent-amount,
+.recent-chip:hover .recent-amount {
+  color: inherit;
+}
+
+.recent-rows {
+  margin-top: 0.5rem;
+}
+
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.recent-row + .recent-row {
+  margin-top: 0.4rem;
+}
+
+.recent-name-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 금액 칸은 다섯 자리가 잘리지 않을 만큼만 잡는다. */
+.recent-amount-wrap {
+  flex: 0 0 9.5rem;
+}
+
+.recents-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.6rem;
+}
+
+.recents-foot .hint {
+  flex: 1;
+  min-width: 0;
 }
 
 .editing-flag {
