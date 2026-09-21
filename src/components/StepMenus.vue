@@ -10,6 +10,7 @@ import {
   normalizeAmountText,
   num,
   parseAmount,
+  parseQuickAdd,
   removeMenu,
   state,
   totalAmount,
@@ -20,6 +21,15 @@ import { t } from '../i18n.js'
 const draft = ref(newDraft())
 const editingId = ref(null)
 const nameInput = ref(null)
+const amountInput = ref(null)
+
+// 한 줄 입력. 상세 폼과 상태를 나눠 둬서 서로 간섭하지 않는다.
+const quick = ref('')
+const quickInput = ref(null)
+// 공통/개별은 한 번 고르면 다음 줄에도 그대로 간다. 술을 연달아 넣을 때 매번 누르지 않게.
+const quickCommon = ref(true)
+
+const quickParsed = computed(() => parseQuickAdd(quick.value))
 
 function newDraft() {
   return { name: '', amountText: '', qty: 1, isCommon: true }
@@ -38,6 +48,38 @@ const canSave = computed(() => draft.value.name.trim() !== '' && unitPrice.value
 
 function stepDraftQty(delta) {
   draft.value.qty = Math.max(1, draft.value.qty + delta)
+}
+
+/* Enter 한 번에 한 줄씩. 금액이 빠졌으면 상세 폼으로 넘겨 금액 칸에 커서를 둔다. */
+function submitQuick() {
+  const parsed = quickParsed.value
+  if (!parsed) return
+
+  if (parsed.amount > 0) {
+    addMenu({
+      name: parsed.name,
+      amount: parsed.amount,
+      qty: parsed.qty,
+      isCommon: quickCommon.value,
+    })
+    quick.value = ''
+    nextTick(() => quickInput.value?.focus())
+    return
+  }
+
+  draft.value = {
+    name: parsed.name,
+    amountText: '',
+    qty: parsed.qty,
+    isCommon: quickCommon.value,
+  }
+  quick.value = ''
+  nextTick(() => amountInput.value?.focus())
+}
+
+/* 이름 칸의 Enter. 지금까지는 폼이 submit 되고 금액이 비어서 아무 일도 안 일어났다. */
+function focusAmount() {
+  amountInput.value?.focus()
 }
 
 function save() {
@@ -84,6 +126,68 @@ function drop(menu) {
   <div>
     <p class="lede">{{ t('m.lede') }}</p>
 
+    <!-- 한 줄로 치고 Enter. 상세 폼은 아래에 그대로 두고 빠른 길만 하나 더 낸다. -->
+    <form v-if="!editingId" class="card quick" @submit.prevent="submitQuick">
+      <label class="field">
+        <span class="field-label">{{ t('m.quick.label') }}</span>
+        <div class="quick-row">
+          <input
+            ref="quickInput"
+            v-model="quick"
+            class="input"
+            type="text"
+            :placeholder="t('m.quick.placeholder')"
+            autocomplete="off"
+            enterkeyhint="done"
+          />
+          <button class="btn quick-add" type="submit" :disabled="!quickParsed">
+            {{ t('m.quick.add') }}
+          </button>
+        </div>
+      </label>
+
+      <p class="quick-preview" :class="{ 'is-hint': !quickParsed || !quickParsed.amount }">
+        <template v-if="quickParsed && quickParsed.amount > 0">
+          {{
+            quickParsed.qty > 1
+              ? t('m.quick.many', {
+                  name: quickParsed.name,
+                  price: money(quickParsed.amount),
+                  n: quickParsed.qty,
+                  total: money(quickParsed.amount * quickParsed.qty),
+                })
+              : t('m.quick.one', {
+                  name: quickParsed.name,
+                  price: money(quickParsed.amount),
+                })
+          }}
+        </template>
+        <template v-else-if="quickParsed">
+          {{ t('m.quick.nameOnly', { name: quickParsed.name }) }}
+        </template>
+        <template v-else>{{ t('m.quick.hint') }}</template>
+      </p>
+
+      <div class="splits">
+        <button
+          class="chip split-common"
+          type="button"
+          :aria-pressed="quickCommon"
+          @click="quickCommon = true"
+        >
+          {{ t('m.split.common') }}
+        </button>
+        <button
+          class="chip"
+          type="button"
+          :aria-pressed="!quickCommon"
+          @click="quickCommon = false"
+        >
+          {{ t('m.split.pick') }}
+        </button>
+      </div>
+    </form>
+
     <form class="card form" :class="{ 'is-editing': editingId }" @submit.prevent="save">
       <p v-if="editingId" class="editing-flag">{{ t('m.editing') }}</p>
 
@@ -99,6 +203,7 @@ function drop(menu) {
             autocomplete="off"
             enterkeyhint="next"
             maxlength="24"
+            @keydown.enter.prevent="focusAmount"
           />
         </label>
       </div>
@@ -108,6 +213,7 @@ function drop(menu) {
           <span class="field-label">{{ t('m.field.amount') }}</span>
           <div class="amount-wrap" :class="currency.prefix ? 'unit-lead' : 'unit-trail'">
             <input
+              ref="amountInput"
               v-model="amountText"
               class="input amount num"
               type="text"
@@ -277,6 +383,45 @@ function drop(menu) {
 .form.is-editing {
   border-color: var(--soju);
   background: var(--soju-soft);
+}
+
+/* 한 줄 입력. 상세 폼과 같은 종이 위에 있지만 여기가 먼저 눈에 들어와야 한다. */
+.quick {
+  margin-bottom: 0.75rem;
+  border-color: var(--ink-3);
+}
+
+.quick-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.quick-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.quick-add {
+  flex: 0 0 auto;
+  padding: 0 1rem;
+}
+
+/* 친 대로 어떻게 읽혔는지 그 자리에서 보여 준다. 안 맞으면 바로 고칠 수 있게. */
+.quick-preview {
+  margin-top: 0.55rem;
+  color: var(--soju);
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.quick-preview.is-hint {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.quick .splits {
+  margin-top: 0.7rem;
 }
 
 .editing-flag {

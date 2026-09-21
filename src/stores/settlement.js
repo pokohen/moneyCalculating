@@ -437,3 +437,72 @@ export function normalizeAmountText(text) {
     .slice(0, decimals);
   return `${whole || "0"}.${rest}`;
 }
+
+/* 한 줄로 친 메뉴를 { name, amount, qty } 로 쪼갠다. 뒤에서부터 읽는다.
+
+     삼겹살 15000        →  삼겹살 · 15,000 · 1개
+     삼겹살 15,000 x2    →  삼겹살 · 15,000 · 2개
+     소주 5000 3개       →  소주   ·  5,000 · 3개
+     삼겹살 15000 2      →  숫자가 둘 연달아 끝나면 뒤엣것이 수량이다
+     삼겹살 2인분 30000  →  '2인분'은 가운데라 이름에 그대로 남는다
+     삼겹살              →  금액 없이 이름만. 화면에서 금액 칸으로 넘긴다
+
+   수량 표시가 없으면 마지막 숫자는 언제나 금액이다. 이름을 못 건지면 null. */
+
+// x2 · 2개 · 2병 처럼 '이건 금액이 아니라 수량'이라고 대놓고 말하는 토큰
+const QTY_TAIL = /^(?:[x*×](\d{1,3})|(\d{1,3})(?:개|병|잔|인분|인|ea|pcs?|x))$/i;
+const NUMBER_TOKEN = /^\d[\d,]*(?:\.\d+)?$/;
+const isNumber = (token) => NUMBER_TOKEN.test(token ?? "");
+
+export function parseQuickAdd(text) {
+  const raw = String(text ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    // '5000 3 개' · '15000 x 2' 처럼 띄어 쓴 수량도 한 토큰으로 본다. 맨 끝에서만 붙인다.
+    .replace(/(\d)\s+(개|병|잔|인분|인|ea|pcs?)$/i, "$1$2")
+    .replace(/\s([x*×])\s+(\d{1,3})$/i, " $1$2");
+  if (!raw) return null;
+
+  const tokens = raw.split(" ");
+  let qty = 0;
+
+  // 1) 수량 표시부터 떼어낸다. 이름이 통째로 날아가지 않게 토큰이 둘 이상일 때만.
+  const tail = tokens[tokens.length - 1].match(QTY_TAIL);
+  if (tail && tokens.length > 1) {
+    qty = Number(tail[1] ?? tail[2]);
+    tokens.pop();
+  }
+
+  // 2) 표시가 없어도 숫자 토큰이 둘 연달아 끝나면 뒤엣것을 수량으로 읽는다.
+  if (
+    !qty &&
+    tokens.length > 2 &&
+    isNumber(tokens[tokens.length - 1]) &&
+    isNumber(tokens[tokens.length - 2])
+  ) {
+    qty = Number(tokens.pop().replace(/,/g, ""));
+  }
+
+  // 3) 남은 마지막 숫자가 금액이다.
+  let amount = 0;
+  if (tokens.length > 1 && isNumber(tokens[tokens.length - 1])) {
+    amount = parseAmount(tokens.pop());
+  }
+
+  let name = tokens.join(" ").trim();
+
+  // 4) '삼겹살15000' 처럼 붙여 쓴 것도 받아 준다. '콜라500ml' 은 숫자로 끝나지 않아 안 걸린다.
+  if (!amount) {
+    const glued = name.match(/^(.*\D)(\d[\d,]*(?:\.\d+)?)$/);
+    if (glued) {
+      name = glued[1].trim();
+      amount = parseAmount(glued[2]);
+    }
+  }
+
+  // 이름 칸과 같은 24자 제한을 여기서도 건다.
+  name = name.slice(0, 24).trim();
+  if (!name) return null;
+
+  return { name, amount, qty: Math.min(99, Math.max(1, qty || 1)) };
+}
